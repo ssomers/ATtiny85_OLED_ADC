@@ -4,14 +4,23 @@
 typedef SBS_OLED01 OLED;
 static byte constexpr ADDRESS = 0x3C;
 
-static byte const input_pins[] = { 3, 4, 5 };
-static byte const adc_ids[] = { 3, 2, 0 };
+static byte constexpr input_pins[] = { PIN3, PIN4, PIN5 };
 
-template <uint8_t margin>
+static inline int8_t pin_to_adc_channel(byte pin) {
+  switch (pin) {
+    case PIN2: return 1;
+    case PIN3: return 3;
+    case PIN4: return 2;
+    case PIN5: return 0;
+    default: return -1;
+  }
+}
+
+template <uint8_t MARGIN>
 class glyph {
   public:
     static uint8_t constexpr SEGS = 8;
-    static uint8_t constexpr WIDTH = margin + SEGS + margin;
+    static uint8_t constexpr WIDTH = MARGIN + SEGS + MARGIN;
 
   private:
     byte const seg0;
@@ -70,13 +79,13 @@ class glyph {
     // Assumes this instance is in PROGMEM.
     // Assumes set_page_address over two pages is set up.
     void sendOnQuarter(OLED::BareChat& chat) const {
-      chat.sendN(2 * margin, 0);
+      chat.sendN(2 * MARGIN, 0);
       for (uint8_t x = 0; x < SEGS; ++x) {
         byte seg = pgm_read_byte(locateSegAt(x));
         chat.send(seg << 4);
         chat.send(seg >> 4);
       }
-      chat.sendN(2 * margin, 0);
+      chat.sendN(2 * MARGIN, 0);
     }
 };
 
@@ -84,7 +93,7 @@ typedef glyph<0> narrow_glyph;
 typedef glyph<1> normal_glyph;
 
 
-static normal_glyph const digit_glyphs[10] PROGMEM = {
+static normal_glyph PROGMEM const digit_glyphs[10] = {
   {
     " ###### "
     "##    ##"
@@ -178,7 +187,18 @@ static normal_glyph const digit_glyphs[10] PROGMEM = {
   }
 };
 
-static narrow_glyph const pin_glyphs[2] PROGMEM = {
+static normal_glyph PROGMEM const overflow_glyph = {
+  "#      #"
+  " #    # "
+  "  #  #  "
+  "   ##   "
+  "   ##   "
+  "  #  #  "
+  " #    # "
+  "#      #"
+};
+
+static narrow_glyph PROGMEM const pin_glyphs[2] = {
   {
     "###   # "
     "#  #    "
@@ -200,7 +220,7 @@ static narrow_glyph const pin_glyphs[2] PROGMEM = {
   }
 };
 
-static narrow_glyph const minus_glyph PROGMEM = {
+static narrow_glyph PROGMEM const minus_glyph = {
   "        "
   "        "
   "        "
@@ -211,7 +231,7 @@ static narrow_glyph const minus_glyph PROGMEM = {
   "        "
 };
 
-static narrow_glyph const plus_glyph PROGMEM = {
+static narrow_glyph PROGMEM const plus_glyph = {
   "        "
   "        "
   "    #   "
@@ -222,7 +242,7 @@ static narrow_glyph const plus_glyph PROGMEM = {
   "        "
 };
 
-static narrow_glyph const colon_glyph PROGMEM = {
+static narrow_glyph PROGMEM const colon_glyph = {
   "        "
   "   ##   "
   "   ##   "
@@ -260,47 +280,59 @@ static void reportError(OLED::Status status) {
   }
 }
 
-OLED::BareChat startChatAtQuarter(uint8_t quarter, uint8_t width) {
+OLED::BareChat startChatOnQuarter(uint8_t quarter, uint8_t width) {
   return OLED::Chat(ADDRESS, 20)
          .set_page_address(quarter * 2, quarter * 2 + 1)
          .set_column_address(0, width - 1)
          .start_data();
 }
 
-static void sendSignOnQuarter(int signedNumber, OLED::BareChat& chat) {
-  if (signedNumber < 0) {
-    minus_glyph.sendOnQuarter(chat);
-  } if (signedNumber > 0) {
+static constexpr uint8_t NUMBER_WIDTH = narrow_glyph::WIDTH + 4 * normal_glyph::WIDTH;
+
+static void sendNumberOnQuarter(int number, OLED::BareChat& chat) {
+  if (number < 0) {
+    minus_glyph.narrow_glyph::sendOnQuarter(chat);
+  } if (number > 0) {
     plus_glyph.sendOnQuarter(chat);
   } else {
     chat.sendN(narrow_glyph::WIDTH * 2, 0);
   }
+  number = abs(number);
+  if (number > 9999) {
+    overflow_glyph.sendOnQuarter(chat);
+    overflow_glyph.sendOnQuarter(chat);
+    overflow_glyph.sendOnQuarter(chat);
+    overflow_glyph.sendOnQuarter(chat);
+  } else {
+    uint8_t const p1 = number / 100;
+    uint8_t const p2 = number % 100;
+    digit_glyphs[p1 / 10].sendOnQuarter(chat);
+    digit_glyphs[p1 % 10].sendOnQuarter(chat);
+    digit_glyphs[p2 / 10].sendOnQuarter(chat);
+    digit_glyphs[p2 % 10].sendOnQuarter(chat);
+  }
 }
 
-static void sendNumberOnQuarter(uint16_t number, OLED::BareChat& chat) {
-  uint8_t const p1 = number / 100;
-  uint8_t const p2 = number % 100;
-  digit_glyphs[p1 / 10].sendOnQuarter(chat);
-  digit_glyphs[p1 % 10].sendOnQuarter(chat);
-  digit_glyphs[p2 / 10].sendOnQuarter(chat);
-  digit_glyphs[p2 % 10].sendOnQuarter(chat);
-}
-
-static OLED::Status displayPinValue(uint8_t quarter, uint8_t pin, int value) {
-  auto chat = startChatAtQuarter(quarter, 4 * narrow_glyph::WIDTH + 5 * normal_glyph::WIDTH);
+static void displayPinValue(uint8_t quarter, uint8_t pin, int value) {
+  constexpr auto width = 2 * narrow_glyph::WIDTH + normal_glyph::WIDTH + narrow_glyph::WIDTH + NUMBER_WIDTH;
+  auto chat = startChatOnQuarter(quarter, quarter == 0 ? OLED::WIDTH : width);
   pin_glyphs[0].sendOnQuarter(chat);
   pin_glyphs[1].sendOnQuarter(chat);
   digit_glyphs[pin].sendOnQuarter(chat);
   colon_glyph.sendOnQuarter(chat);
-  sendSignOnQuarter(value, chat);
-  sendNumberOnQuarter(abs(value), chat);
-  return chat.stop();
-}
-
-static OLED::Status displayNumber(uint8_t quarter, int number) {
-  auto chat = startChatAtQuarter(quarter, 4 * normal_glyph::WIDTH);
-  sendNumberOnQuarter(number, chat);
-  return chat.stop();
+  sendNumberOnQuarter(value, chat);
+  if (quarter == 0) {
+    chat.sendN((OLED::WIDTH - width - 4) * 2, 0);
+    static uint8_t spinner = 0;
+    spinner = (spinner + 1) & 0x3;
+    switch (spinner) {
+      case 0: chat.send(0b0011).send(0).send(0b0111).send(0).send(0b1110).send(0).send(0b1100).send(0); break;
+      case 1: chat.send(0b0000).send(0).send(0b1111).send(0).send(0b1111).send(0).send(0b0000).send(0); break;
+      case 2: chat.send(0b1100).send(0).send(0b1110).send(0).send(0b0111).send(0).send(0b0011).send(0); break;
+      case 3: chat.send(0b0110).send(0).send(0b0110).send(0).send(0b0110).send(0).send(0b0110).send(0); break;
+    }
+  }
+  reportError(chat.stop());
 }
 
 void setup() {
@@ -318,18 +350,15 @@ void setup() {
              .stop();
   digitalWrite(LED_BUILTIN, LOW);
   reportError(err);
-  pinMode(1, INPUT);
-  pinMode(3, INPUT);
-  pinMode(4, INPUT);
-  pinMode(5, INPUT);
+  for (uint8_t i = 0; i < sizeof input_pins; ++i) {
+    pinMode(input_pins[i], INPUT);
+  }
 }
 
 void loop() {
-  static int counter = 0;
-  reportError(displayNumber(0, counter));
-  if (++counter > 9999) counter = 0;
   for (uint8_t i = 0; i < sizeof input_pins; ++i) {
-    reportError(displayPinValue(1 + i, input_pins[i], analogRead(adc_ids[i])));
+    int value = analogRead(pin_to_adc_channel(input_pins[i]));
+    displayPinValue(i, input_pins[i], value);
   }
   delay(200);
 }
