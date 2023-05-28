@@ -1,7 +1,8 @@
 #include <inttypes.h>
-#include "SBC-OLED01.h"
+#include "OLED.h"
+#include "Glyph.h"
+#include "GlyphsOnQuarter.h"
 
-typedef SBS_OLED01 OLED;
 static byte constexpr ADDRESS = 0x3C;
 
 static byte constexpr input_pins[] = { PIN3, PIN4, PIN5 };
@@ -15,237 +16,6 @@ static inline int8_t pin_to_adc_channel(byte pin) {
     default: return -1;
   }
 }
-
-class glyph {
-  public:
-    static uint8_t constexpr SEGS = 8;
-
-  private:
-    byte const seg0;
-    byte const seg1;
-    byte const seg2;
-    byte const seg3;
-    byte const seg4;
-    byte const seg5;
-    byte const seg6;
-    byte const seg7;
-
-#   pragma GCC diagnostic push
-#   pragma GCC diagnostic ignored "-Wreturn-type"
-    const byte* locateSegAt(uint8_t x) const {
-      switch (x) {
-        case 0: return &seg0;
-        case 1: return &seg1;
-        case 2: return &seg2;
-        case 3: return &seg3;
-        case 4: return &seg4;
-        case 5: return &seg5;
-        case 6: return &seg6;
-        case 7: return &seg7;
-      }
-    }
-#   pragma GCC diagnostic pop
-
-    constexpr static bool pixel(char c) {
-      return c != ' ';
-    }
-
-    constexpr static byte extractSegAt(int x, const char* col_per_row) {
-      return 0
-             | pixel(col_per_row[x + SEGS * 0]) << 0
-             | pixel(col_per_row[x + SEGS * 1]) << 1
-             | pixel(col_per_row[x + SEGS * 2]) << 2
-             | pixel(col_per_row[x + SEGS * 3]) << 3
-             | pixel(col_per_row[x + SEGS * 4]) << 4
-             | pixel(col_per_row[x + SEGS * 5]) << 5
-             | pixel(col_per_row[x + SEGS * 6]) << 6
-             | pixel(col_per_row[x + SEGS * 7]) << 7;
-    }
-
-  public:
-    constexpr glyph(const char* col_per_row)
-      : seg0(extractSegAt(0, col_per_row))
-      , seg1(extractSegAt(1, col_per_row))
-      , seg2(extractSegAt(2, col_per_row))
-      , seg3(extractSegAt(3, col_per_row))
-      , seg4(extractSegAt(4, col_per_row))
-      , seg5(extractSegAt(5, col_per_row))
-      , seg6(extractSegAt(6, col_per_row))
-      , seg7(extractSegAt(7, col_per_row))
-    {}
-
-    // Assumes this instance is in PROGMEM.
-    // Assumes set_page_address over two pages is set up.
-    void sendOnQuarter(OLED::BareChat& chat, uint8_t margin) const {
-      chat.sendN(2 * margin, 0);
-      for (uint8_t x = 0; x < SEGS; ++x) {
-        byte seg = pgm_read_byte(locateSegAt(x));
-        chat.send(seg << 4);
-        chat.send(seg >> 4);
-      }
-      chat.sendN(2 * margin, 0);
-    }
-};
-
-static glyph PROGMEM const digit_glyphs[10] = {
-  {
-    " ###### "
-    "##    ##"
-    "##    ##"
-    "##    ##"
-    "##    ##"
-    "##    ##"
-    "##    ##"
-    " ###### "
-  }, {
-    "    ### "
-    "   #### "
-    "  ## ## "
-    " ##  ## "
-    "     ## "
-    "     ## "
-    "     ## "
-    "     ## "
-  }, {
-    " ###### "
-    "##    ##"
-    "      ##"
-    "     ## "
-    "    ##  "
-    "   ##   "
-    " ##     "
-    "########"
-  }, {
-    " ###### "
-    "##    ##"
-    "      ##"
-    "   #### "
-    "      ##"
-    "      ##"
-    "##    ##"
-    " ###### "
-  }, {
-    "   #### "
-    "  ## ## "
-    " ##  ## "
-    "##   ## "
-    "##   ## "
-    "########"
-    "     ## "
-    "     ## "
-  }, {
-    "########"
-    "##      "
-    "##      "
-    "####### "
-    "      ##"
-    "      ##"
-    "##    ##"
-    " ###### "
-  }, {
-    "  ##### "
-    " ##   ##"
-    "##      "
-    "# ##### "
-    "##    ##"
-    "##    ##"
-    "##    ##"
-    " ###### "
-  }, {
-    "########"
-    "      ##"
-    "     ## "
-    "    ##  "
-    "   ##   "
-    "   ##   "
-    "   ##   "
-    "   ##   "
-  }, {
-    " ###### "
-    "##    ##"
-    "##    ##"
-    " ###### "
-    "##    ##"
-    "##    ##"
-    "##    ##"
-    " ###### "
-  }, {
-    " ###### "
-    "##    ##"
-    "##    ##"
-    " ###### "
-    "      ##"
-    "      ##"
-    "##   ## "
-    " #####  "
-  }
-};
-
-static glyph PROGMEM const overflow_glyph = {
-  "#      #"
-  " #    # "
-  "  #  #  "
-  "   ##   "
-  "   ##   "
-  "  #  #  "
-  " #    # "
-  "#      #"
-};
-
-static glyph PROGMEM const pin_glyphs[2] = {
-  {
-    "###   # "
-    "#  #    "
-    "#  #  # "
-    "###   # "
-    "#     # "
-    "#     # "
-    "#     # "
-    "#      #"
-  }, {
-    "        "
-    "        "
-    " # ##   "
-    " ##  #  "
-    " #   #  "
-    " #   #  "
-    " #   #  "
-    " #   #  "
-  }
-};
-
-static glyph PROGMEM const minus_glyph = {
-  "        "
-  "        "
-  "        "
-  " ###### "
-  " ###### "
-  "        "
-  "        "
-  "        "
-};
-
-static glyph PROGMEM const plus_glyph = {
-  "        "
-  "        "
-  "    #   "
-  "    #   "
-  "  ##### "
-  "    #   "
-  "    #   "
-  "        "
-};
-
-static glyph PROGMEM const colon_glyph = {
-  "        "
-  "   ##   "
-  "   ##   "
-  "        "
-  "        "
-  "   ##   "
-  "   ##   "
-  "        "
-};
 
 static void flashN(uint8_t number) {
   while (number >= 5) {
@@ -264,7 +34,7 @@ static void flashN(uint8_t number) {
   }
 }
 
-static void reportError(OLED::Status status) {
+static void reportError(I2C::Status status) {
   if (status.errorlevel) {
     delay(300);
     flashN(status.errorlevel);
@@ -274,53 +44,21 @@ static void reportError(OLED::Status status) {
   }
 }
 
-OLED::BareChat startChatOnQuarter(uint8_t quarter, uint8_t width) {
-  return OLED::Chat(ADDRESS, 20)
-         .set_page_address(quarter * 2, quarter * 2 + 1)
-         .set_column_address(0, width - 1)
-         .start_data();
-}
-
-static constexpr uint8_t MARGIN = 1;
-static constexpr uint8_t WIDTH_4DIGIT_NUMBER = 4 * (MARGIN + glyph::SEGS + MARGIN);
-
-static void send4digitNumberOnQuarter(int number, OLED::BareChat & chat) {
-  constexpr uint8_t NUM_ERR_GLYPHS = 5;
-  static_assert(WIDTH_4DIGIT_NUMBER == NUM_ERR_GLYPHS * glyph::SEGS);
-  if (number < 0) {
-    for (uint8_t _ = 0; _ < NUM_ERR_GLYPHS; ++_) {
-      minus_glyph.sendOnQuarter(chat, 0);
-    }
-    return;
-  }
-  uint8_t const p1 = number / 100;
-  uint8_t const p2 = number % 100;
-  if (p1 >= 100) {
-    for (uint8_t _ = 0; _ < NUM_ERR_GLYPHS; ++_) {
-      overflow_glyph.sendOnQuarter(chat, 0);
-    }
-    return;
-  }
-  digit_glyphs[p1 / 10].sendOnQuarter(chat, MARGIN);
-  digit_glyphs[p1 % 10].sendOnQuarter(chat, MARGIN);
-  digit_glyphs[p2 / 10].sendOnQuarter(chat, MARGIN);
-  digit_glyphs[p2 % 10].sendOnQuarter(chat, MARGIN);
-}
-
 static void displayPinValue(uint8_t quarter, uint8_t pin, int value) {
-  constexpr auto width = 4 * glyph::SEGS + WIDTH_4DIGIT_NUMBER;
-  auto chat = startChatOnQuarter(quarter, quarter == 0 ? OLED::WIDTH : width);
-  pin_glyphs[0].sendOnQuarter(chat, 0);
-  pin_glyphs[1].sendOnQuarter(chat, 0);
-  digit_glyphs[pin].sendOnQuarter(chat, 0);
-  colon_glyph.sendOnQuarter(chat, 0);
-  send4digitNumberOnQuarter(value, chat);
+  uint8_t constexpr content_width = 4 * Glyph::SEGS + GlyphsOnQuarter::WIDTH_4DIGIT_NUMBER;
+  uint8_t const displayed_width = quarter == 0 ? OLED::WIDTH : content_width;
+  auto chat = OLED::QuarterChat{ADDRESS, quarter, 0, uint8_t(displayed_width - 1)};
+  GlyphsOnQuarter::sendOnQuarter(chat, Glyph::pin[0]);
+  GlyphsOnQuarter::sendOnQuarter(chat, Glyph::pin[1]);
+  GlyphsOnQuarter::sendOnQuarter(chat, Glyph::digit[pin]);
+  GlyphsOnQuarter::sendOnQuarter(chat, Glyph::colon);
+  GlyphsOnQuarter::send4digitNumberOnQuarter(chat, value);
   if (quarter == 0) {
-    chat.sendN((OLED::WIDTH - width - 2) * 2, 0);
+    chat.sendSpacing(OLED::WIDTH - content_width - 2);
     static bool toggle = 0;
     toggle ^= 1;
     for (uint8_t _ = 0; _ < 2; ++_) {
-      chat.send(0b1111 << (toggle * 2)).send(0);
+      chat.send(0b1111 << (toggle * 2), 0);
     }
   }
   reportError(chat.stop());
